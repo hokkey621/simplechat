@@ -18,8 +18,8 @@ def extract_region_from_arn(arn):
 bedrock_client = None
 
 # モデルID
-MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
-
+#MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
+MODEL_ID = "https://27c5-34-125-179-12.ngrok-free.app"
 def lambda_handler(event, context):
     try:
         # コンテキストから実行リージョンを取得し、クライアントを初期化
@@ -36,7 +36,6 @@ def lambda_handler(event, context):
         if 'requestContext' in event and 'authorizer' in event['requestContext']:
             user_info = event['requestContext']['authorizer']['claims']
             print(f"Authenticated user: {user_info.get('email') or user_info.get('cognito:username')}")
-        
         # リクエストボディの解析
         body = json.loads(event['body'])
         message = body['message']
@@ -71,35 +70,47 @@ def lambda_handler(event, context):
         
         # invoke_model用のリクエストペイロード
         request_payload = {
-            "messages": bedrock_messages,
+            "messages": message,
             "inferenceConfig": {
                 "maxTokens": 512,
-                "stopSequences": [],
+                "do_sample": true,
                 "temperature": 0.7,
-                "topP": 0.9
+                "top_p": 0.9
             }
         }
         
-        print("Calling Bedrock invoke_model API with payload:", json.dumps(request_payload))
-        
-        # invoke_model APIを呼び出し
-        response = bedrock_client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(request_payload),
-            contentType="application/json"
+        print("Calling FastAPI with payload:", json.dumps(request_payload))
+        # リクエストの準備
+        req = urllib.request.Request(
+            url=FASTAPI_URL,
+            data=json.dumps(request_payload).encode('utf-8'),  # JSONペイロードをエンコード
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
+                                    
+        # リクエスト送信とレスポンス取得
+        with urllib.request.urlopen(req) as response:
+            response_body = response.read().decode('utf-8')  # UTF-8でデコード
+            response_data = json.loads(response_body)  # JSONパース
+        print("FastAPI response:", json.dumps(response_data, default=str))
+        # invoke_model APIを呼び出し
+        #response = bedrock_client.invoke_model(
+        #    modelId=MODEL_ID,
+        #    body=json.dumps(request_payload),
+        #    contentType="application/json"
+        #)
         
         # レスポンスを解析
-        response_body = json.loads(response['body'].read())
-        print("Bedrock response:", json.dumps(response_body, default=str))
+        #response_body = json.loads(response['body'].read())
+        #print("Bedrock response:", json.dumps(response_body, default=str))
         
         # 応答の検証
         if not response_body.get('output') or not response_body['output'].get('message') or not response_body['output']['message'].get('content'):
             raise Exception("No response content from the model")
         
         # アシスタントの応答を取得
-        assistant_response = response_body['output']['message']['content'][0]['text']
-        
+        #assistant_response = response_body['output']['message']['content'][0]['text']
+        assistant_response = response_data['generated_text']
         # アシスタントの応答を会話履歴に追加
         messages.append({
             "role": "assistant",
